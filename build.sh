@@ -21,25 +21,51 @@ for t in tests_icons tests_anim tests_fx tests_wm tests_amb tests_note tests_ski
 done
 [ $fail = 0 ] || exit 1
 sed 's/$/\r/' build/body.lua > dist/VisualsHub_NL.lua
+# [v94] тот же скрипт с меню NeverUI (Neverlose): своя сборка всё-в-одном + тесты функций и слоя совместимости
+cat src/head.lua src/NeverUI.lua src/hs_data.lua src/sky_data.lua src/rest.lua > build/body_nl.lua
+python3 tools/lcheck.py build/body_nl.lua > /dev/null
+"$LUAU_DIR/luau-compile" --binary build/body_nl.lua > /dev/null
+for t in tests_nl tests_amb tests_skin tests_v78 tests_v80 tests_v81 tests_v86; do
+  cat tests/mock.lua build/body_nl.lua tests/prelude_pages.lua tests/$t.lua > build/run_nl_$t.lua
+  set +e; out=$("$LUAU_DIR/luau" build/run_nl_$t.lua 2>&1); rc=$?; set -e
+  if [ $rc -ne 0 ] || echo "$out" | grep -qi "error\|failed"; then echo "== NL $t FAIL"; echo "$out" | tail -8; exit 1
+  else echo "== NL $t ok"; fi
+done
+sed 's/$/\r/' build/body_nl.lua > dist/VisualsHub_Neverlose.lua
 # [v93] GitHub: отдельная библиотека lib/SkeetUI.lua + скрипт, который её качает (dist/VisualsHub.lua) + loader.lua
 REPO="OWNER/VisualsHub"; BRANCH="main"
 [ -f repo.conf ] && . ./repo.conf
 RAW="https://raw.githubusercontent.com/$REPO/$BRANCH"
-python3 tools/split_lib.py "$RAW/lib/SkeetUI.lua"
+python3 tools/split_lib.py "$RAW" # [v94] обе библиотеки + ключ + выбор темы
 "$LUAU_DIR/luau-compile" --binary lib/SkeetUI.lua > /dev/null
+"$LUAU_DIR/luau-compile" --binary lib/NeverUI.lua > /dev/null
 cat src/head.lua build/lib_remote.lua src/hs_data.lua src/sky_data.lua src/rest.lua > build/body_remote.lua
 python3 tools/lcheck.py build/body_remote.lua
 "$LUAU_DIR/luau-compile" --binary build/body_remote.lua > /dev/null
 # смоук-тест: скрипт с библиотекой «с GitHub» (HttpGet в моке отдаёт lib/SkeetUI.lua) проходит tests_wm
+# [v94] смоук: тема Skeet (tests_wm), тема Neverlose (tests_nl), ключ (верный / неверный)
 python3 - <<'PY'
-lib = open('lib/SkeetUI.lua', encoding='utf8').read()
-assert ']=====]' not in lib
-open('build/prelude_remote.lua', 'w', encoding='utf8').write('local __LIB = [=====[' + lib + ']=====]\n'
-    'game.HttpGet = function(_, url) if string.find(url, "SkeetUI", 1, true) then return __LIB end return "" end\n')
+sk = open('lib/SkeetUI.lua', encoding='utf8').read()
+nl = open('lib/NeverUI.lua', encoding='utf8').read()
+assert ']=====]' not in sk and ']=====]' not in nl
+def prelude(theme, key, keys):
+    return ('local __SK = [=====[' + sk + ']=====]\nlocal __NL = [=====[' + nl + ']=====]\n'
+        'local __KEYS = [=====[' + keys + ']=====]\n'
+        + ('getgenv().Theme = "%s"\n' % theme) + ('getgenv().Key = "%s"\n' % key) +
+        'game.HttpGet = function(_, url) if string.find(url, "SkeetUI", 1, true) then return __SK end '
+        'if string.find(url, "NeverUI", 1, true) then return __NL end '
+        'if string.find(url, "keys.txt", 1, true) then return __KEYS end return "" end\n')
+open('build/prelude_remote_sk.lua', 'w', encoding='utf8').write(prelude('Skeet', 'e2k3q0923r0233rk9023k', '6142f6eb\n'))
+open('build/prelude_remote_nl.lua', 'w', encoding='utf8').write(prelude('Neverlose', 'e2k3q0923r0233rk9023k', '6142f6eb\n'))
+open('build/prelude_remote_bad.lua', 'w', encoding='utf8').write(prelude('Skeet', 'wrong', '6142f6eb\n'))
 PY
-cat tests/mock.lua build/prelude_remote.lua build/body_remote.lua tests/prelude_pages.lua tests/tests_wm.lua > build/run_remote.lua
-"$LUAU_DIR/luau" build/run_remote.lua 2>&1 | grep -q "WM TESTS PASSED" || { echo "== remote FAIL"; exit 1; }
-echo "== remote ok"
+cat tests/mock.lua build/prelude_remote_sk.lua build/body_remote.lua tests/prelude_pages.lua tests/tests_wm.lua > build/run_remote.lua
+"$LUAU_DIR/luau" build/run_remote.lua 2>&1 | grep -q "WM TESTS PASSED" || { echo "== remote Skeet FAIL"; exit 1; }
+cat tests/mock.lua build/prelude_remote_nl.lua build/body_remote.lua tests/prelude_pages.lua tests/tests_nl.lua > build/run_remote_nl.lua
+"$LUAU_DIR/luau" build/run_remote_nl.lua 2>&1 | grep -q "NL TESTS PASSED" || { echo "== remote Neverlose FAIL"; "$LUAU_DIR/luau" build/run_remote_nl.lua 2>&1 | tail -5; exit 1; }
+cat tests/mock.lua build/prelude_remote_bad.lua build/body_remote.lua > build/run_remote_bad.lua
+"$LUAU_DIR/luau" build/run_remote_bad.lua 2>&1 | grep -q "invalid key" || { echo "== remote key check FAIL"; exit 1; }
+echo "== remote ok (Skeet, Neverlose, key)"
 cp build/body_remote.lua dist/VisualsHub.lua
-printf -- '-- VisualsHub (gamesense): запусти это в экзекуторе. Скрипт и библиотека качаются с GitHub, обновляются сами.\nloadstring(game:HttpGet("%s/dist/VisualsHub.lua"))()\n' "$RAW" > loader.lua
-echo "OK -> dist/VisualsHub_NL.lua (всё в одном), dist/VisualsHub.lua + lib/SkeetUI.lua (GitHub), loader.lua"
+# loader.lua - пример запуска, правится вручную (ключ, тема) [v94]
+echo "OK -> dist/VisualsHub_NL.lua (SkeetUI) и dist/VisualsHub_Neverlose.lua (NeverUI) - всё в одном; dist/VisualsHub.lua + lib/SkeetUI.lua + lib/NeverUI.lua (GitHub), loader.lua"

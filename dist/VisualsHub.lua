@@ -71,14 +71,48 @@ end
 
 -- ИЗМЕНЕНО (только GUI): вместо Obsidian (loadstring с GitHub) - встроенная NeverUI ниже.
 ------------------------------------------------------------
--- SkeetUI: библиотека грузится с GitHub (lib/SkeetUI.lua). Встроенная копия - в dist/VisualsHub_NL.lua.
+-- [v94] Загрузка с GitHub. Перед loadstring можно задать:
+--   getgenv().Key   = "ключ"                    -- если в репозитории есть keys.txt (хэши ключей)
+--   getgenv().Theme = "Neverlose" | "Skeet"     -- меню: NeverUI или SkeetUI (по умолчанию Skeet)
+-- Встроенные копии (без загрузки): dist/VisualsHub_NL.lua (SkeetUI), dist/VisualsHub_Neverlose.lua (NeverUI).
 ------------------------------------------------------------
 local Library, ThemeManager, SaveManager = (function()
-    local url = "https://raw.githubusercontent.com/KometaTest/VisualsHub/main/lib/SkeetUI.lua"
-    local ok, src = pcall(function() return game:HttpGet(url) end)
-    if not ok or type(src) ~= "string" or src == "" then error("[VisualsHub] can't download SkeetUI: " .. tostring(src)) end
-    local fn, err = loadstring(src, "=SkeetUI")
-    if not fn then error("[VisualsHub] SkeetUI compile error: " .. tostring(err)) end
+    local RAW = "https://raw.githubusercontent.com/KometaTest/VisualsHub/main"
+    local env = (getgenv and getgenv()) or _G
+    local function get(path)
+        local ok, res = pcall(function() return game:HttpGet(RAW .. path) end)
+        if ok and type(res) == "string" then return res end
+        return nil
+    end
+    -- ключ: FNV-1a 32 от строки ключа, сверяется со строками keys.txt (hex). Нет keys.txt / он пустой - без ключа.
+    local function fnv(str)
+        local h = 2166136261
+        for i = 1, #str do
+            h = bit32.bxor(h, string.byte(str, i))
+            h = (bit32.lshift(h, 24) + h * 403) % 4294967296
+        end
+        return string.format("%08x", h)
+    end
+    local keys = get("/keys.txt")
+    local list = {}
+    if keys and not string.find(keys, "404", 1, true) then
+        for line in string.gmatch(keys, "[^\r\n]+") do
+            local hx = string.match(line, "^%s*(%x%x%x%x%x%x%x%x)%s*$")
+            if hx then list[string.lower(hx)] = true end
+        end
+    end
+    if next(list) then
+        local key = tostring(env.Key or _G.Key or "")
+        if key == "" or not list[fnv(key)] then
+            error("[VisualsHub] invalid key. Set getgenv().Key = \"...\" before loadstring.", 0)
+        end
+    end
+    local theme = string.lower(tostring(env.Theme or _G.Theme or "Skeet"))
+    local name = (theme == "neverlose" or theme == "nl" or theme == "neverui") and "NeverUI" or "SkeetUI"
+    local src = get("/lib/" .. name .. ".lua")
+    if not src or src == "" then error("[VisualsHub] can't download " .. name, 0) end
+    local fn, err = loadstring(src, "=" .. name)
+    if not fn then error("[VisualsHub] " .. name .. " compile error: " .. tostring(err), 0) end
     return fn()
 end)()
 -- [v40] хитсаунды (Neverlose.cc + nl hitsound), ogg mono 32k, base64. Грузятся через writefile+getcustomasset.
@@ -150,6 +184,8 @@ SKYBOX_DATA = {
 
 local Options, Toggles = Library.Options, Library.Toggles
 Library.ForceCheckbox = true
+-- [v94] тот же скрипт с меню NeverUI (getgenv().Theme = "Neverlose"): своё название в меню / уведомлениях
+if Library.Theme == "Neverlose" then CONFIG.DisplayName = "Visuals Hub" end
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
