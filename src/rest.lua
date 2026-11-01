@@ -1,8 +1,6 @@
 
 local Options, Toggles = Library.Options, Library.Toggles
 Library.ForceCheckbox = true
--- [v94] тот же скрипт с меню NeverUI (getgenv().Theme = "Neverlose"): своё название в меню / уведомлениях
-if Library.Theme == "Neverlose" then CONFIG.DisplayName = "Visuals Hub" end
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
